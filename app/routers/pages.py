@@ -4,7 +4,7 @@ from typing import Optional
 import json
 
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from jinja2.utils import markupsafe
 from sqlalchemy.orm import Session, joinedload
@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.auth import get_current_user
 from app.db import get_db
 from app.models import DipLot, Vat, Workshop
-from app.services.vat_rules import VatRuleError, validate_vat_status_change
+from app.services.vat_rules import VatRuleError, can_mark_ready, validate_vat_status_change
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -73,6 +73,8 @@ def _vat_payload(vat: Vat) -> dict:
         "lastRedox": float(latest.redoxMv) if latest and latest.redoxMv is not None else None,
         "lastMeters": float(latest.clothMeters) if latest else None,
         "lastDippedAt": latest.dippedAt.strftime("%Y-%m-%d %H:%M") if latest else None,
+        # 放行提示与改状态入口共用同一个达标函数，前端只读结果不另算
+        "canReady": can_mark_ready(latest),
         "spark": _spark_points(chronological),
         "recentLots": [
             {
@@ -84,6 +86,24 @@ def _vat_payload(vat: Vat) -> dict:
             for l in recent
         ],
     }
+
+
+def _wants_json(request: Request) -> bool:
+    """fetch 提交（X-Requested-With: fetch 或 Accept: application/json）走 JSON 对账。"""
+    if request.headers.get("x-requested-with", "").lower() == "fetch":
+        return True
+    return "application/json" in request.headers.get("accept", "")
+
+
+def _vat_json(db: Session, pk: int) -> JSONResponse:
+    """保存成功后回传服务端权威缸位载荷，前端据此一次性对账三处。"""
+    item = (
+        db.query(Vat)
+        .options(joinedload(Vat.workshop), joinedload(Vat.lots))
+        .filter(Vat.id == pk)
+        .first()
+    )
+    return JSONResponse({"ok": True, "vat": _vat_payload(item)})
 
 
 def _bay_context(
@@ -102,11 +122,16 @@ def _bay_context(
         .order_by(Vat.code)
         .all()
     )
+    # 图例张数只数状态本身（可染色仅含 status == ready 的缸），与是否达标无关
+    status_counts = {key: 0 for key in STATUS_LABELS}
+    for v in vats:
+        status_counts[v.status] = status_counts.get(v.status, 0) + 1
     return {
         "request": request,
         "user": user,
         "workshops": [{"id": w.id, "name": w.name, "region": w.region} for w in workshops],
         "vats": [_vat_payload(v) for v in vats],
+        "status_counts": status_counts,
         "filter_workshop": workshop_id,
         "selected_vat": selected_vat,
         "error": error,
@@ -154,10 +179,14 @@ async def bay_vat_status(
         validate_vat_status_change(item, status, latest)
         item.status = status
         db.commit()
+        if _wants_json(request):
+            return _vat_json(db, pk)
         return RedirectResponse(f"/?vat={pk}" + (f"&workshop={ws}" if ws else ""), status_code=303)
     except VatRuleError as exc:
         error = exc.message
         db.rollback()
+    if _wants_json(request):
+        return JSONResponse({"ok": False, "error": error}, status_code=400)
     return render(
         request,
         "bay.html",
@@ -192,11 +221,16 @@ async def bay_log_lot(
             redoxMv=Decimal(redoxMv) if redoxMv.strip() else None,
         )
         db.add(lot)
+        # 只登记浸染批次：状态字段只能经「改状态」入口变更，此处不得静默改
         db.commit()
+        if _wants_json(request):
+            return _vat_json(db, pk)
         return RedirectResponse(f"/?vat={pk}" + (f"&workshop={ws}" if ws else ""), status_code=303)
     except (ValueError, InvalidOperation) as exc:
         error = f"浸染记录无效：{exc}"
         db.rollback()
+    if _wants_json(request):
+        return JSONResponse({"ok": False, "error": error}, status_code=400)
     return render(
         request,
         "bay.html",
