@@ -18,6 +18,12 @@
     </template>
   </div>
 
+  <div class="legend" aria-label="缸位状态图例">
+    <span class="legend-item"><span class="status-dot dot-idle"></span>闲置 <b x-text="countBy('idle')"></b> 张</span>
+    <span class="legend-item"><span class="status-dot dot-reducing"></span>还原中 <b x-text="countBy('reducing')"></b> 张</span>
+    <span class="legend-item"><span class="status-dot dot-ready"></span>可染色 <b x-text="countBy('ready')"></b> 张</span>
+  </div>
+
   {% if error %}
   <div class="error-box">{{ error }}</div>
   {% endif %}
@@ -79,6 +85,8 @@
         <p class="hint">当前 <strong x-text="selected().statusLabel"></strong>
           · 最近浸染 <span x-text="selected().lastDippedAt || '—'"></span>
           · 设为可染色须最新批次电位 ≤ -500 mV</p>
+        <p class="release-hint" :class="selected().readyOk ? 'ok' : 'no'"
+           x-text="selected().readyHint"></p>
 
         <div class="panel-grid">
           <div>
@@ -165,6 +173,10 @@
       filteredVats() {
         if (this.filterWs === null) return this.vats;
         return this.vats.filter(v => v.workshopId === this.filterWs);
+      },
+      countBy(status) {
+        // 图例只数状态字段已是该状态的缸位，与是否达标无关
+        return this.vats.filter(v => v.status === status).length;
       },
       toggle(id) {
         this.selectedId = this.selectedId === id ? null : id;

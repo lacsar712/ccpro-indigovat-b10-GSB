@@ -199,6 +199,38 @@
     .st-ready .status-dot { background: #5dcea8; box-shadow: 0 0 8px rgba(93, 206, 168, 0.65); }
     .status-label { font-size: 0.78rem; opacity: 0.9; }
     .spark { display: block; margin-top: 0.25rem; opacity: 0.9; }
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.35rem 1.15rem;
+      margin: -0.3rem 0 0.95rem;
+      color: rgba(216, 235, 232, 0.82);
+      font-size: 0.84rem;
+    }
+    .legend-item b {
+      font-variant-numeric: tabular-nums;
+      color: var(--foam);
+    }
+    .dot-idle { background: var(--idle); }
+    .dot-reducing { background: #7eb8d8; box-shadow: 0 0 8px rgba(126, 184, 216, 0.7); }
+    .dot-ready { background: #5dcea8; box-shadow: 0 0 8px rgba(93, 206, 168, 0.65); }
+    .release-hint {
+      font-size: 0.88rem;
+      margin: -0.5rem 0 1rem;
+      padding: 0.45rem 0.75rem;
+      border-radius: 8px;
+    }
+    .release-hint.ok {
+      background: rgba(26, 122, 92, 0.1);
+      color: var(--ready);
+      border: 1px solid rgba(26, 122, 92, 0.35);
+    }
+    .release-hint.no {
+      background: rgba(160, 116, 32, 0.1);
+      color: #8a6414;
+      border: 1px solid rgba(160, 116, 32, 0.35);
+    }
     .panel {
       background: linear-gradient(165deg, rgba(244, 248, 247, 0.97), rgba(232, 242, 240, 0.94));
       border: 1px solid rgba(31, 77, 107, 0.18);

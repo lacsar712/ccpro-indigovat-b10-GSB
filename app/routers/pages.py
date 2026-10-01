@@ -12,7 +12,12 @@ from sqlalchemy.orm import Session, joinedload
 from app.auth import get_current_user
 from app.db import get_db
 from app.models import DipLot, Vat, Workshop
-from app.services.vat_rules import VatRuleError, validate_vat_status_change
+from app.services.vat_rules import (
+    VatRuleError,
+    fmt_redox,
+    ready_block_reason,
+    validate_vat_status_change,
+)
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -29,6 +34,9 @@ STATUS_LABELS = {
     Vat.STATUS_REDUCING: "还原中",
     Vat.STATUS_READY: "可染色",
 }
+
+# 展开区「近几笔」展示上限；余量要足以让保存成功后顶部一定多一行
+RECENT_LOTS_LIMIT = 20
 
 
 def render(request: Request, name: str, context: dict, status_code: int = 200):
@@ -60,7 +68,16 @@ def _vat_payload(vat: Vat) -> dict:
     lots = sorted(vat.lots, key=lambda x: (x.dippedAt, x.id))
     chronological = lots
     latest = lots[-1] if lots else None
-    recent = list(reversed(lots[-8:]))  # 展开区展示近几笔
+    recent = list(reversed(lots[-RECENT_LOTS_LIMIT:]))  # 展开区展示近几笔
+    # 放行提示与改状态入口共用 ready_block_reason；此处只读，不改 vat.status
+    block = ready_block_reason(latest)
+    if block is None:
+        ready_hint = (
+            f"已达标：最新批次电位 {fmt_redox(latest.redoxMv)} mV ≤ -500 mV，"
+            "可放行设为可染色。"
+        )
+    else:
+        ready_hint = f"未达标：{block}，暂不可放行设为可染色。"
     return {
         "id": vat.id,
         "code": vat.code,
@@ -73,6 +90,8 @@ def _vat_payload(vat: Vat) -> dict:
         "lastRedox": float(latest.redoxMv) if latest and latest.redoxMv is not None else None,
         "lastMeters": float(latest.clothMeters) if latest else None,
         "lastDippedAt": latest.dippedAt.strftime("%Y-%m-%d %H:%M") if latest else None,
+        "readyOk": block is None,
+        "readyHint": ready_hint,
         "spark": _spark_points(chronological),
         "recentLots": [
             {
